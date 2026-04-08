@@ -1,0 +1,71 @@
+services:
+  valkey:
+    image: valkey/valkey:latest
+    container_name: metrics_collector-valkey
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: metrics_collector-clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: collector
+      CLICKHOUSE_PASSWORD: collector_pass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user collector --password collector_pass --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  quotes-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: metrics_collector-quotes-collector
+    entrypoint: ["/app/quotes-collector"]
+    # volumes:
+    #   - /Users/karim/temp:/vtp
+    environment:
+      COLLECTOR_DEVICE_PATH: /dev/urandom
+      COLLECTOR_DEVICE_OPEN_RETRY: 1s
+      COLLECTOR_INPUT_MODE: random
+      COLLECTOR_PUBLISH_DELAY: 100ms
+      COLLECTOR_READ_BUFFER_BYTES: 4096
+      COLLECTOR_VERIFY_CRC: "true"
+      COLLECTOR_LOG_INTERVAL: 10s
+      COLLECTOR_STRICT_SINKS: "true"
+      COLLECTOR_STDOUT_ENABLED: "true"
+
+      VALKEY_ENABLED: "true"
+      VALKEY_ADDRESS: valkey:6379
+      VALKEY_CHANNEL: quotes.ticks
+      VALKEY_DB: 0
+      VALKEY_TIMEOUT: 3s
+
+      CLICKHOUSE_ENABLED: "true"
+      CLICKHOUSE_ENDPOINT: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: default
+      CLICKHOUSE_TABLE: raw_ticks
+      CLICKHOUSE_USERNAME: collector
+      CLICKHOUSE_PASSWORD: collector_pass
+      CLICKHOUSE_TIMEOUT: 5s
+      CLICKHOUSE_AUTO_CREATE_TABLE: "true"
+    depends_on:
+      valkey:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    # devices:
+      # - "${COLLECTOR_HOST_DEVICE:-/dev/vtp_moex0}:/dev/vtp_moex0"
+      
+    restart: unless-stopped
